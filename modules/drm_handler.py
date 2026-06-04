@@ -267,8 +267,16 @@ async def drm_handler(bot: Client, m: Message):
             await bot.send_message(m.chat.id, "❌ <b>Failed to download your file.</b>\n\nPlease try again.", parse_mode="html")
             return
         _log.warning(f"[TXT] FILE DOWNLOAD SUCCESS  path={x!r}")
+        # Instantly acknowledge so user knows the bot is working
         try:
-            await bot.send_document(OWNER, x)
+            _ack = await bot.send_message(m.chat.id, "⏳ <b>File received! Processing...</b>", parse_mode="html")
+        except Exception:
+            _ack = None
+        # Send copy to owner — with strict timeout so it never hangs
+        try:
+            await asyncio.wait_for(bot.send_document(OWNER, x), timeout=15)
+        except asyncio.TimeoutError:
+            _log.warning("[TXT] send_document to owner timed out (non-fatal, continuing)")
         except Exception as _se:
             _log.warning(f"[TXT] send to owner failed (non-fatal): {_se}")
         try:
@@ -278,14 +286,26 @@ async def drm_handler(bot: Client, m: Message):
         file_name, ext = os.path.splitext(os.path.basename(x))
         path = f"./downloads/{m.chat.id}"
         _log.warning(f"[TXT] FILE READ START  path={x!r}")
-        try:
-            with open(x, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-        except Exception as _re:
-            _log.warning(f"[TXT] FILE READ FAILED: {_re}")
-            await bot.send_message(m.chat.id, f"❌ <b>Could not read file:</b> {_re}", parse_mode="html")
+        content = None
+        for _enc in ("utf-8-sig", "utf-8", "utf-16", "latin-1", "cp1252"):
+            try:
+                with open(x, "r", encoding=_enc, errors="strict") as f:
+                    content = f.read()
+                _log.warning(f"[TXT] FILE READ SUCCESS  encoding={_enc!r}  chars={len(content)}")
+                break
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+            except Exception as _re:
+                _log.warning(f"[TXT] FILE READ FAILED ({_enc}): {_re}")
+                break
+        if content is None:
+            _log.warning("[TXT] FILE READ FAILED: all encodings failed")
+            await bot.send_message(m.chat.id, "❌ <b>Could not read file.</b>\n\nMake sure it is a valid .txt file.", parse_mode="html")
             return
-        _log.warning(f"[TXT] FILE READ SUCCESS  chars={len(content)}")
+        if not content.strip():
+            _log.warning("[TXT] FILE EMPTY")
+            await bot.send_message(m.chat.id, "❌ <b>File is empty.</b>\n\nPlease send a .txt file with valid links.", parse_mode="html")
+            return
         lines = content.split("\n")
         try:
             os.remove(x)
@@ -296,6 +316,7 @@ async def drm_handler(bot: Client, m: Message):
         await bot.send_message(m.chat.id, "❌ <b>Only .txt files are supported.</b>\n\nPlease send a valid .txt file.", parse_mode="html")
         return
     elif m.text and "://" in m.text:
+        _ack = None
         lines = [m.text]
     else:
         _log.warning(f"[TXT] No processable content — returning silently")
@@ -344,6 +365,12 @@ async def drm_handler(bot: Client, m: Message):
 
     _log.warning(f"[TXT] {len(links)} links parsed — sending summary to user")
     if m.document:
+        # Delete "Processing..." ack now that we have real info to show
+        try:
+            if _ack:
+                await _ack.delete(True)
+        except Exception:
+            pass
         editable = await m.reply_text(
                f"<b>🔗 {len(links)} Links Found</b>\n"
                f"<blockquote>"
