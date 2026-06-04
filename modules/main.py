@@ -326,34 +326,77 @@ class _CQ:
                     kw["parse_mode"] = {"html": _PM.HTML, "markdown": _PM.MARKDOWN}.get(
                         kw["parse_mode"].lower(), _PM.HTML)
                 return kw
+            async def _delete_silent(self):
+                try: await client.delete_messages(_cq_self.chat_id, _cq_self.message_id)
+                except Exception: pass
             async def _do_edit(self, text, **kw):
+                # Try edit_message_text; if the current msg is a photo, try edit_caption; else delete+resend
+                kw = self._fix_pm(kw)
                 try:
-                    await client.edit_message_text(_cq_self.chat_id, _cq_self.message_id, text, **self._fix_pm(kw))
-                except Exception as e:
-                    logging.warning(f"[CQ.msg] edit: {e}")
-                return self  # return self so editable.edit() also works
+                    await client.edit_message_text(_cq_self.chat_id, _cq_self.message_id, text, **kw)
+                    return self
+                except Exception as e1:
+                    logging.warning(f"[CQ.msg] edit_text failed ({e1}), trying edit_caption")
+                try:
+                    await client.edit_message_caption(_cq_self.chat_id, _cq_self.message_id, text, **kw)
+                    return self
+                except Exception as e2:
+                    logging.warning(f"[CQ.msg] edit_caption failed ({e2}), delete+resend")
+                rm = kw.pop("reply_markup", None)
+                await self._delete_silent()
+                try: await client.send_message(_cq_self.chat_id, text, reply_markup=rm, **kw)
+                except Exception as e3: logging.warning(f"[CQ.msg] send_message fallback failed: {e3}")
+                return self
             async def edit(self, text, **kw):
                 return await self._do_edit(text, **kw)
             async def edit_text(self, text, **kw):
                 return await self._do_edit(text, **kw)
             async def edit_caption(self, caption, **kw):
-                try: await client.edit_message_caption(_cq_self.chat_id, _cq_self.message_id, caption, **self._fix_pm(kw))
-                except Exception as e: logging.warning(f"[CQ.msg] edit_caption: {e}")
+                kw = self._fix_pm(kw)
+                try:
+                    await client.edit_message_caption(_cq_self.chat_id, _cq_self.message_id, caption, **kw)
+                    return self
+                except Exception as e1:
+                    logging.warning(f"[CQ.msg] edit_caption failed ({e1}), trying edit_text")
+                try:
+                    await client.edit_message_text(_cq_self.chat_id, _cq_self.message_id, caption, **kw)
+                    return self
+                except Exception as e2:
+                    logging.warning(f"[CQ.msg] edit_text fallback failed ({e2}), delete+resend")
+                rm = kw.pop("reply_markup", None)
+                await self._delete_silent()
+                try: await client.send_message(_cq_self.chat_id, caption, reply_markup=rm, **kw)
+                except Exception as e3: logging.warning(f"[CQ.msg] send_message fallback failed: {e3}")
                 return self
             async def edit_reply_markup(self, reply_markup=None):
                 try: await client.edit_message_reply_markup(_cq_self.chat_id, _cq_self.message_id, reply_markup=reply_markup)
                 except Exception as e: logging.warning(f"[CQ.msg] edit_reply_markup: {e}")
                 return self
             async def edit_media(self, media, **kw):
-                try: await client.edit_message_media(_cq_self.chat_id, _cq_self.message_id, media, **kw)
-                except Exception as e: logging.warning(f"[CQ.msg] edit_media: {e}")
+                try:
+                    await client.edit_message_media(_cq_self.chat_id, _cq_self.message_id, media, **kw)
+                    return self
+                except Exception as e:
+                    logging.warning(f"[CQ.msg] edit_media failed ({e}), delete+resend photo")
+                # Fallback: delete old message and send a new photo
+                rm = kw.pop("reply_markup", None)
+                await self._delete_silent()
+                try:
+                    _photo_url = getattr(media, "media", None)
+                    _caption   = getattr(media, "caption", "")
+                    _pm_val    = getattr(media, "parse_mode", None)
+                    await client.send_photo(
+                        _cq_self.chat_id, _photo_url,
+                        caption=_caption, parse_mode=_pm_val, reply_markup=rm,
+                    )
+                except Exception as e2:
+                    logging.warning(f"[CQ.msg] send_photo fallback failed: {e2}")
                 return self
             async def reply_text(self, text, **kw):
                 try: return await client.send_message(_cq_self.chat_id, text, **self._fix_pm(kw))
                 except Exception as e: logging.warning(f"[CQ.msg] reply_text: {e}")
             async def delete(self):
-                try: await client.delete_messages(_cq_self.chat_id, _cq_self.message_id)
-                except Exception: pass
+                await self._delete_silent()
         self.message = _MsgProxy()
 
     def _fix_pm(self, kw):
