@@ -994,7 +994,12 @@ async def drm_handler(bot: Client, m: Message):
                 bcov = f'bcov_auth={cwtoken}'
                 url = url.split("bcov_auth")[0]+bcov
 
-            #elif "d1d34p8vz63oiq" in url or "sec1.pw.live" in url:
+            elif any(x in url for x in ["d1d34p8vz63oiq", "sec1.pw.live", "pw.live/video", "d26g5yszhu7brj", "d3pcsg4b0bsad5"]):
+                # Direct PW CDN/CloudFront URLs — route through anonymous player API
+                _pw_api = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url={url}"
+                if raw_text4 and raw_text4 not in ('/d', 'd', ''):
+                    _pw_api += f"&token={raw_text4}"
+                url = _pw_api
             elif "dragoapi.vercel.app" in url and "*" in url :
     # Split into base URL and key
              parts = url.split("*", 1)
@@ -1017,7 +1022,10 @@ async def drm_handler(bot: Client, m: Message):
               url = final_url.strip()
             
             elif "childId" in url and "parentId" in url:
-                url = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url={url}&token={raw_text4}"
+                _pw_base = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url={url}"
+                if raw_text4 and raw_text4 not in ('/d', 'd', ''):
+                    _pw_base += f"&token={raw_text4}"
+                url = _pw_base
                            
             elif 'encrypted.m' in url and '*' in url and not is_appx_xor_video:
                  appxkey = url.split('*')[1]
@@ -1209,6 +1217,8 @@ async def drm_handler(bot: Client, m: Message):
                cmd = f'yt-dlp --concurrent-fragments 5 --add-header "referer:https://web.classplusapp.com/" --add-header "x-cdn-tag:empty" -f "{ytf}" "{url}" -o "{name}.mp4"'
             elif "youtube.com" in url or "youtu.be" in url:
                 cmd = f'yt-dlp --concurrent-fragments 5 --cookies youtube_cookies.txt -f "{ytf}" "{url}" -o "{name}".mp4'
+            elif "anonymouspwplayerrr" in url or "pw.live" in url or "sec1.pw.live" in url or "d1d34p8vz63oiq" in url:
+                cmd = f'yt-dlp --concurrent-fragments 5 --add-header "Referer:https://www.pw.live/" --add-header "Origin:https://www.pw.live" -f "{ytf}" "{url}" -o "{name}.mp4"'
             else:
                 cmd = f'yt-dlp --concurrent-fragments 5 -f "{ytf}" "{url}" -o "{name}.mp4"'
 
