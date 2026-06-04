@@ -11,7 +11,6 @@ import pytz
 import asyncio
 import requests
 import subprocess
-import urllib
 import urllib.parse
 import yt_dlp
 import tgcrypto
@@ -1867,7 +1866,7 @@ async def drm_handler(bot: Client, m: Message):
                             
                             prog = await bot.send_message(channel_id, Show, disable_web_page_preview=True)
                             prog1 = await m.reply_text(Show1, disable_web_page_preview=True)
-                            res_file = await helper.download_asia_video(url,  name)  
+                            res_file = helper.download_drago_mkv(url, name)
                             filename = res_file  
                             if prog1:
                                 try: await prog1.delete(True)

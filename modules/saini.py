@@ -8,18 +8,15 @@ import aiofiles
 import asyncio
 import logging
 import requests
-import tgcrypto
 import subprocess
-import concurrent.futures
 from math import ceil
 from utils import progress_bar
-from pyrogram import Client, filters
+from pyrogram import Client
 from pyrogram.types import Message
 from io import BytesIO
-from pathlib import Path  
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
-from base64 import b64decode
+from pathlib import Path
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from requests.exceptions import RequestException
 from topic_handler import send_video_with_fallback, send_document_with_fallback
 
@@ -40,53 +37,6 @@ def duration(filename):
     except Exception as e:
         print(f"❌ Failed to get duration for {filename}: {e}")
         return 0.0
-
-def get_mps_and_keys(api_url):
-    response = requests.get(api_url)
-    response_json = response.json()
-    mpd = response_json.get('MPD')
-    keys = response_json.get('KEYS')
-    return mpd, keys
-
-def get_mps_and_keys2(api_url):
-    try:
-        response = requests.get(api_url, timeout=10)
-        response.raise_for_status()  # Raises exception for 4xx/5xx status codes
-        response_json = response.json()
-        mpd = response_json.get('mpd_url')
-        keys = response_json.get('keys')
-        return mpd, keys
-    except RequestException as e:
-        print(f"Request failed: {e}")
-        return None, None
-    except ValueError as e:
-        print(f"JSON decode error: {e}")
-        return None, None
-
-def get_mps_and_keys3(api_url):
-    try:
-        response = requests.get(api_url, timeout=10)
-        response.raise_for_status()  # Raises exception for 4xx/5xx status codes
-        response_json = response.json()
-        mpd = response_json.get('url')
-        return mpd
-    except RequestException as e:
-        print(f"Request failed: {e}")
-        return None
-    except ValueError as e:
-        print(f"JSON decode error: {e}")
-        return None
-   
-def exec(cmd):
-        process = subprocess.run(cmd, stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-        output = process.stdout.decode()
-        print(output)
-        return output
-        #err = process.stdout.decode()
-def pull_run(work, cmds):
-    with concurrent.futures.ThreadPoolExecutor(max_workers=work) as executor:
-        print("Waiting for tasks to complete")
-        fut = executor.map(exec,cmds)
 
 # ─── Fast PDF / file downloader (chunked, retry, resume) ──────────────────────
 _DL_CHUNK  = 512 * 1024          # 512 KB per chunk
@@ -123,11 +73,6 @@ async def _fetch_chunked(url: str, dest: str, headers: dict = None, retries: int
     return dest if os.path.exists(dest) else None
 
 
-async def aio(url, name):
-    k = f'{name}.pdf'
-    return await _fetch_chunked(url, k)
-
-
 async def download(url, name):
     ka = f'{name}.pdf'
     return await _fetch_chunked(url, ka)
@@ -137,58 +82,6 @@ async def pdf_download(url, file_name, chunk_size=None):
     """Async-friendly, resumable PDF download."""
     return await _fetch_chunked(url, file_name)
    
-
-def parse_vid_info(info):
-    info = info.strip()
-    info = info.split("\n")
-    new_info = []
-    temp = []
-    for i in info:
-        i = str(i)
-        if "[" not in i and '---' not in i:
-            while "  " in i:
-                i = i.replace("  ", " ")
-            i.strip()
-            i = i.split("|")[0].split(" ",2)
-            try:
-                if "RESOLUTION" not in i[2] and i[2] not in temp and "audio" not in i[2]:
-                    temp.append(i[2])
-                    new_info.append((i[0], i[2]))
-            except:
-                pass
-    return new_info
-
-
-def vid_info(info):
-    info = info.strip()
-    info = info.split("\n")
-    new_info = dict()
-    temp = []
-    for i in info:
-        i = str(i)
-        if "[" not in i and '---' not in i:
-            while "  " in i:
-                i = i.replace("  ", " ")
-            i.strip()
-            i = i.split("|")[0].split(" ",3)
-            try:
-                if "RESOLUTION" not in i[2] and i[2] not in temp and "audio" not in i[2]:
-                    temp.append(i[2])
-                    
-                    # temp.update(f'{i[2]}')
-                    # new_info.append((i[2], i[0]))
-                    #  mp4,mkv etc ==== f"({i[1]})" 
-                    
-                    new_info.update({f'{i[2]}':f'{i[0]}'})
-
-            except:
-                pass
-    return new_info
-
-
-import os
-import subprocess
-from pathlib import Path
 
 async def decrypt_and_merge_video(mpd_url, keys_string, output_path, output_name, quality="720"):
     try:
@@ -312,29 +205,7 @@ async def run(cmd):
 
     
 
-def old_download(url, file_name, chunk_size=1024 * 1024):
-    """Sync fallback download with 1 MB chunks and resume support."""
-    if os.path.exists(file_name):
-        downloaded = os.path.getsize(file_name)
-        headers = {"Range": f"bytes={downloaded}-"}
-    else:
-        downloaded = 0
-        headers = {}
-    headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 13)"
-    r = requests.get(url, allow_redirects=True, stream=True, headers=headers, timeout=(10, 120))
-    mode = "ab" if downloaded else "wb"
-    with open(file_name, mode) as fd:
-        for chunk in r.iter_content(chunk_size=chunk_size):
-            if chunk:
-                fd.write(chunk)
-    return file_name
-
-# appx zip ke liye 
-# helper.py
-import os
-import requests
 import zipfile
-import subprocess
 import tempfile
 import shutil
 
@@ -404,8 +275,6 @@ def extract_zip(zip_path: str) -> str:
     return extract_dir
 
 
-import subprocess
-
 def merge_ts_files(folder: str, output: str):
     ts_files = sorted(
         f for f in os.listdir(folder)
@@ -441,22 +310,6 @@ def download_drago_mkv(url: str, name: str) -> str | None:
     else:
         return download_raw_file(final_url, name)
     
-def human_readable_size(size, decimal_places=2):
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
-        if size < 1024.0 or unit == 'PB':
-            break
-        size /= 1024.0
-    return f"{size:.{decimal_places}f} {unit}"
-
-
-def time_name():
-    date = datetime.date.today()
-    now = datetime.datetime.now()
-    current_time = now.strftime("%H%M%S")
-    return f"{date} {current_time}.mp4"
-
-from urllib.parse import urljoin
-
 async def fetch_segment(session, seg_url):
     try:
         async with session.get(seg_url, timeout=30) as resp:
@@ -704,19 +557,6 @@ def download_and_decrypt_video(url: str, name: str, key: str = None) -> str | No
 # ==============================
 # EXAMPLE USAGE
 # ==============================
-
-
-async def send_doc(bot: Client, m: Message, cc, ka, cc1, prog, count, name, channel_id):
-    reply = await bot.send_message(channel_id, f"Downloading pdf:\n<pre><code>{name}</code></pre>")
-    time.sleep(1)
-    start_time = time.time()
-    await bot.send_document(ka, caption=cc1)
-    count+=1
-    await reply.delete (True)
-    time.sleep(1)
-    os.remove(ka)
-    time.sleep(3) 
-
 
 
 # 🔹 Async ffmpeg runner (NO BLOCKING)

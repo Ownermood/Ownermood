@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from db import db
 from vars import OWNER, CREDIT
-from pyrogram import Client, filters
+from pyrogram import Client
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait, PeerIdInvalid, UserIsBlocked, InputUserDeactivated
 

@@ -1,8 +1,6 @@
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pyrogram.handlers import MessageHandler
 from datetime import datetime
-import asyncio
 import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -203,8 +201,3 @@ async def my_plan_cmd(client: Client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ Error: {str(e)}")
 
-# Register command handlers
-add_user_handler = filters.command("add") & filters.private, add_user_cmd
-remove_user_handler = filters.command("remove") & filters.private, remove_user_cmd
-list_users_handler = filters.command("users") & filters.private, list_users_cmd
-my_plan_handler = filters.command("plan") & filters.private, my_plan_cmd
