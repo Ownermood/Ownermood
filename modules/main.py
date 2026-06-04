@@ -85,6 +85,24 @@ from pyrogram.types import Message, InputMediaPhoto
 from pyrogram.errors import FloodWait, PeerIdInvalid, UserIsBlocked, InputUserDeactivated
 from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+# ── Patch pyrogram Parser to accept string parse modes ("html", "markdown") ───
+# drm_handler and other modules pass parse_mode="html" as a plain string.
+# Pyrogram 2.0.x only accepts ParseMode enum values — this patch fixes it globally.
+try:
+    from pyrogram.parser.parser import Parser as _PyroParser
+    from pyrogram.enums import ParseMode as _PM
+    _PM_STR = {"html": _PM.HTML, "markdown": _PM.MARKDOWN,
+               "markdownv2": _PM.MARKDOWN, "disabled": _PM.DISABLED, "": _PM.DISABLED}
+    _orig_parser_parse = _PyroParser.parse
+    async def _patched_parser_parse(self, text, mode=None):
+        if isinstance(mode, str):
+            mode = _PM_STR.get(mode.lower(), _PM.HTML)
+        return await _orig_parser_parse(self, text, mode)
+    _PyroParser.parse = _patched_parser_parse
+    logging.warning("[PATCH] pyrogram Parser patched — string parse modes now accepted")
+except Exception as _pe:
+    logging.warning(f"[PATCH] pyrogram Parser patch failed (non-fatal): {_pe}")
 import aiohttp
 import shutil
 
