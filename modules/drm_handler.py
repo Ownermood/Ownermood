@@ -562,8 +562,12 @@ async def drm_handler(bot: Client, m: Message):
                     )
                 if batch_message_id:
                     try:
-                        await bot.pin_chat_message(channel_id, batch_message_id)
-                        await bot.delete_messages(channel_id, batch_message_id + 1)
+                        async with aiohttp.ClientSession() as _s:
+                            await _s.post(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/pinChatMessage",
+                                json={"chat_id": channel_id, "message_id": batch_message_id, "disable_notification": True},
+                                timeout=aiohttp.ClientTimeout(total=10),
+                            )
                     except Exception:
                         pass
         else:

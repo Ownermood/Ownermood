@@ -293,8 +293,6 @@ class _Msg:
         """Send a message and return an _EditProxy (HTTP-based, handles string parse modes)."""
         _payload = {"chat_id": self.chat.id, "text": text}
         if parse_mode:
-            _payload["parse_mode"] = str(parse_mode).upper() if hasattr(parse_mode, 'value') else str(parse_mode).title()
-            # Normalise to Telegram API strings: HTML or Markdown
             _pm_str = str(parse_mode).lower().replace("parsemode.", "")
             _payload["parse_mode"] = "HTML" if "html" in _pm_str else "Markdown"
         if disable_web_page_preview:
