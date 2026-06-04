@@ -512,14 +512,6 @@ async def _dispatch_http(upd: dict):
             await call_broadcast_handler(bot, m)
         elif cmd_part == "broadusers":
             await call_broadusers_handler(bot, m)
-        elif cmd_part == "addplan":
-            await admin_addplan(bot, m)
-        elif cmd_part == "delplan":
-            await admin_delplan(bot, m)
-        elif cmd_part == "clearplans":
-            await admin_clearplans(bot, m)
-        elif cmd_part == "plans":
-            await admin_listplans(bot, m)
         elif not cmd_part and (m.document or (m.text and "://" in m.text) or m.text):
             # plain text / URL / document — main upload handler
             await call_drm_handler(bot, m)
@@ -1602,104 +1594,6 @@ async def send_logs(client: Client, m: Message):
         logging.exception(f"[LOGS] send failed: {e}")
         await m.reply_text(f"**Error sending logs:**\n<blockquote>{e}</blockquote>")
 
-# ══════════════════════════════════════════════════════════════
-# PLAN MANAGEMENT — quick text commands
-# /addplan  → 2-step: bot asks for content, owner sends rich message
-# /delplan  → /delplan PlanName
-# /plans    → list all plans
-# ══════════════════════════════════════════════════════════════
-
-def _is_owner(m) -> bool:
-    uid = (m.from_user.id if m.from_user else None) or m.chat.id
-    return uid in {OWNER, OWNER_ID, OWNER_ID2} or db.is_admin(uid)
-
-# ── /addplan — 2-step: owner sends next message, saved as-is ─────────────────
-@bot.on_message(filters.command("addplan"))
-async def admin_addplan(client, m):
-    if not _is_owner(m):
-        await m.reply_text("❌ Owner only.")
-        return
-    chat_id = m.chat.id
-    prompt = await m.reply_text(
-        "📩 <b>Send your plan text now.</b>\n\n"
-        "Whatever message you send — <b>it will be saved exactly as-is.</b>\n"
-        "Bold, italic, emoji, blockquote — all formatting is supported.\n\n"
-        "<i>To cancel, send /cancel.</i>",
-        parse_mode=enums.ParseMode.HTML,
-    )
-    try:
-        content_msg = await bot.listen(chat_id, timeout=300)
-    except (asyncio.TimeoutError, TimeoutError):
-        try: await prompt.delete()
-        except Exception: pass
-        await m.reply_text("⏰ Timed out. Use /addplan again.")
-        return
-    if content_msg.text and content_msg.text.strip() in ("/cancel", "/stop"):
-        await m.reply_text("❌ Cancelled.")
-        return
-    raw_dict = content_msg._msg if hasattr(content_msg, "_msg") else {}
-    content_html = _pm.msg_to_html(raw_dict) if raw_dict else (content_msg.text or "")
-    db.set_setting("default_plan_content", content_html)
-    logging.warning(f"[PLAN] saved by={chat_id} len={len(content_html)}")
-    try: await prompt.delete()
-    except Exception: pass
-    await m.reply_text("✅ <b>Plan saved successfully!</b>", parse_mode=enums.ParseMode.HTML)
-
-# ── /plans — show the owner their current saved plan ─────────────────────────
-@bot.on_message(filters.command("plans"))
-async def admin_listplans(client, m):
-    if not _is_owner(m):
-        await m.reply_text("❌ Owner only.")
-        return
-    content = db.get_setting("default_plan_content")
-    if not content:
-        await m.reply_text(
-            "❌ <b>No plan saved yet.</b>\n\nUse /addplan to set one.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-        return
-    await m.reply_text(
-        f"✅ <b>Current saved plan:</b>\n\n{content}",
-        parse_mode=enums.ParseMode.HTML,
-    )
-
-# ── /clearplans — delete all saved plans from the database ───────────────────
-@bot.on_message(filters.command("clearplans"))
-async def admin_clearplans(client, m):
-    if not _is_owner(m):
-        await m.reply_text("❌ Owner only.")
-        return
-    try:
-        db.db["plans"].delete_many({})
-        db.set_setting("default_plan_content", "")
-        db.set_setting("welcome_plan", "")
-        db.set_setting("welcome_plan_custom", "")
-        await m.reply_text(
-            "🗑 <b>All plans cleared!</b>\n\n"
-            "Use /addplan to set a new one.",
-            parse_mode=enums.ParseMode.HTML,
-        )
-    except Exception as e:
-        await m.reply_text(f"❌ Error: {e}")
-
-# ── /delplan — specific plan delete (backward compat) ─────────────────────────
-@bot.on_message(filters.command("delplan"))
-async def admin_delplan(client, m):
-    if not _is_owner(m):
-        await m.reply_text("❌ Owner only.")
-        return
-    # If no arg — clear the saved default plan text
-    parts = m.text.split(None, 1)
-    if len(parts) < 2:
-        db.set_setting("default_plan_content", "")
-        await m.reply_text("✅ Default plan cleared.")
-        return
-    name = parts[1].strip()
-    ok = db.delete_plan(name)
-    if ok:
-        await m.reply_text(f"✅ Plan '{name}' deleted.")
-    else:
-        await m.reply_text(f"❌ '{name}' not found. Use /plans to check.")
 
 # .....,.....,.......,...,.......,....., .....,.....,.......,...,.......,.....,
 @bot.on_message(filters.command(["reset"]))
@@ -1903,10 +1797,6 @@ def reset_and_set_commands():
         {"command": "users",      "description": "👥 List all premium users"},
         {"command": "broadcast",  "description": "📢 Broadcast a message to all users"},
         {"command": "broadusers", "description": "👁️ List all users in broadcast list"},
-        {"command": "addplan",    "description": "💳 Set the default plan content"},
-        {"command": "plans",      "description": "📋 Preview the current saved plan"},
-        {"command": "delplan",    "description": "🗑️ Clear the default plan content"},
-        {"command": "clearplans", "description": "🧹 Clear all plans and reset settings"},
         {"command": "getcookies", "description": "🔍 Download the current cookies file"},
         {"command": "logs",       "description": "📋 Get the bot activity log file"},
         {"command": "clean",      "description": "🗂️ Delete all temporary files"},
