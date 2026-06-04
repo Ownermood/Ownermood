@@ -412,7 +412,7 @@ async def drm_handler(bot: Client, m: Message):
     
         if int(raw_text) > len(links) :
             await editable.edit(f"❌ <b>Invalid index.</b> Please enter a number between 1 and {len(links)}.", parse_mode="html")
-            processing_request = False
+            globals.processing_request = False
             await m.reply_text("⛔ Task cancelled.")
             return
 
@@ -1615,7 +1615,7 @@ async def drm_handler(bot: Client, m: Message):
                             # Download with Appx headers
                             appx_hdr_args = get_ytdlp_appx_header_args()
                             cmd = f'yt-dlp --concurrent-fragments 5 {appx_hdr_args} -o "{name}.mkv" "{url}" -R 25 --fragment-retries 25'
-                            os.system(cmd)
+                            subprocess.run(cmd, shell=True)
 
                             # XOR decrypt the downloaded file
                             vid_file = f"{name}.mkv"
@@ -1765,7 +1765,7 @@ async def drm_handler(bot: Client, m: Message):
                             if appx_info.hls_key:
                                 hls_key_arg = f' --hls-key "{appx_info.hls_key}"'
                             cmd = f'yt-dlp --concurrent-fragments 5 {appx_hdr_args} --extractor-args "generic:is_live=false" --no-keep-fragments{hls_key_arg} -o "{name}.mkv" "{url}" -R 25 --fragment-retries 25'
-                            os.system(cmd)
+                            subprocess.run(cmd, shell=True)
 
                             filename = f"{name}.mkv"
                             if prog:
@@ -1910,7 +1910,7 @@ async def drm_handler(bot: Client, m: Message):
                             # -----------------------------------------
                             # DOWNLOAD PDF
                             # -----------------------------------------
-                            os.system(download_cmd)
+                            subprocess.run(download_cmd, shell=True)
 
                             # -----------------------------------------
                             # SEND PDF
@@ -1927,19 +1927,19 @@ async def drm_handler(bot: Client, m: Message):
 
                         except FloodWait as e:
                             await m.reply_text(str(e))
-                            time.sleep(e.x)
+                            await asyncio.sleep(e.x)
                             continue
 
                 elif ".ws" in url and  url.endswith(".ws"):
                     try:
                         await helper.pdf_download(f"{api_url}utkash-ws?url={url}&authorization={api_token}",f"{name}.html")
-                        time.sleep(1)
+                        await asyncio.sleep(1)
                         await send_document_with_fallback(bot, chat_id=channel_id, document=f"{name}.html", caption=cchtml, message_thread_id=upload_thread_id)
                         os.remove(f'{name}.html')
                         count += 1
                     except FloodWait as e:
                         await m.reply_text(str(e))
-                        time.sleep(e.x)
+                        await asyncio.sleep(e.x)
                         continue    
                             
                 elif "cdn-wl-assets.classplus.co" in url and url.endswith(".zip"):
@@ -1964,7 +1964,7 @@ async def drm_handler(bot: Client, m: Message):
                             
                     except FloodWait as e:
                         await m.reply_text(str(e))
-                        time.sleep(e.x)
+                        await asyncio.sleep(e.x)
                         continue
                     except Exception as e:
                         await m.reply_text(f"❌ Error processing ZIP: {str(e)}")
@@ -1977,13 +1977,13 @@ async def drm_handler(bot: Client, m: Message):
                         ext = url.split('.')[-1]
                         cmd = f'yt-dlp -o "{namef}.{ext}" "{url}"'
                         download_cmd = f"{cmd} -R 25 --fragment-retries 25"
-                        os.system(download_cmd)
+                        subprocess.run(download_cmd, shell=True)
                         copy = await send_photo_with_fallback(bot, chat_id=channel_id, photo=f'{namef}.{ext}', caption=ccimg, message_thread_id=upload_thread_id)
                         count += 1
                         os.remove(f'{namef}.{ext}')
                     except FloodWait as e:
                         await m.reply_text(str(e))
-                        time.sleep(e.x)
+                        await asyncio.sleep(e.x)
                         continue    
 
                 elif any(ext in url for ext in [".mp3", ".wav", ".m4a"]):
@@ -1992,13 +1992,13 @@ async def drm_handler(bot: Client, m: Message):
                         ext = url.split('.')[-1]
                         cmd = f'yt-dlp -o "{namef}.{ext}" "{url}"'
                         download_cmd = f"{cmd} -R 25 --fragment-retries 25"
-                        os.system(download_cmd)
+                        subprocess.run(download_cmd, shell=True)
                         copy = await send_document_with_fallback(bot, chat_id=channel_id, document=f'{namef}.{ext}', caption=ccm, message_thread_id=upload_thread_id)
                         count += 1
                         os.remove(f'{namef}.{ext}')
                     except FloodWait as e:
                         await m.reply_text(str(e))
-                        time.sleep(e.x)
+                        await asyncio.sleep(e.x)
                         continue    
                 elif "dragoapi.vercel.app" in url:
                     current_error_msg = None

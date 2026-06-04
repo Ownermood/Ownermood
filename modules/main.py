@@ -601,6 +601,8 @@ async def _dispatch_http(upd: dict):
         cq = _CQ(cq_dict, bot)
         data = cq.data
         logging.warning(f"[POLL] callback_query data={data!r} from={cq.from_user.id}")
+        # Auto-answer immediately so the button spinner disappears
+        await cq.answer()
         for pattern, fn in _CB_HANDLERS:
             if pattern.search(data):
                 try:

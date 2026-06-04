@@ -646,10 +646,34 @@ async def send_vid(
 
     await prog.delete(True)
 
-    reply1 = await bot.send_message(
-        channel_id,
-        f"**📩 Uploading Video 📩:-**\n<blockquote>**{name}**</blockquote>"
-    )
+    # Use HTTP API so this works even if channel is not in pyrogram peer cache
+    _bot_token = os.environ.get("BOT_TOKEN", "")
+    reply1 = None
+    try:
+        async with aiohttp.ClientSession() as _s:
+            _r = await _s.post(
+                f"https://api.telegram.org/bot{_bot_token}/sendMessage",
+                json={"chat_id": channel_id, "text": f"📩 <b>Uploading Video</b> 📩\n<blockquote><b>{name}</b></blockquote>", "parse_mode": "HTML"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            )
+            _rj = await _r.json()
+            if _rj.get("ok"):
+                # Create a lightweight deletable proxy
+                _mid = _rj["result"]["message_id"]
+                class _R1:
+                    async def delete(self, revoke=True):
+                        try:
+                            async with aiohttp.ClientSession() as __s:
+                                await __s.post(f"https://api.telegram.org/bot{_bot_token}/deleteMessage",
+                                    json={"chat_id": channel_id, "message_id": _mid},
+                                    timeout=aiohttp.ClientTimeout(total=5))
+                        except Exception: pass
+                reply1 = _R1()
+    except Exception as _e:
+        logging.warning(f"[send_vid] upload status msg failed: {_e}")
+        class _R1Noop:
+            async def delete(self, revoke=True): pass
+        reply1 = _R1Noop()
 
     reply = await m.reply_text(
         f"**Generate Thumbnail:**\n<blockquote>**{name}**</blockquote>"
