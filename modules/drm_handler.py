@@ -236,36 +236,70 @@ async def drm_handler(bot: Client, m: Message):
         
         return (False, 1, 1)  # Should never reach here
 
-    user_id = m.from_user.id
-    if m.document and m.document.file_name.endswith('.txt'):
+    user_id = m.from_user.id if m.from_user else m.chat.id
+    import logging as _log
+    _log.warning(f"[TXT] TXT RECEIVED  user={user_id}  doc={bool(m.document)}  text={repr((m.text or '')[:60])}")
+
+    # ── Auth check (done first to avoid pointless download for unauthorized) ──
+    _sender_id = m.from_user.id if m.from_user else m.chat.id
+    _is_owner = _sender_id in {OWNER, OWNER_ID, OWNER_ID2} or _sender_id in ADMINS
+    if m.document and not _is_owner:
+        try:
+            bot_username = (await bot.get_me()).username
+        except Exception:
+            bot_username = "bot"
+        if not db.is_user_authorized(m.chat.id, bot_username):
+            _log.warning(f"[TXT] ACCESS DENIED  user={m.chat.id}")
+            await bot.send_message(
+                m.chat.id,
+                f"<blockquote>⚠️ <b>Access Denied</b>\n\nYou are not a Premium Member.\nContact the owner to get access.\n\nYour ID: <code>{m.chat.id}</code></blockquote>",
+                parse_mode="html",
+            )
+            return
+
+    if m.document and m.document.file_name and m.document.file_name.endswith('.txt'):
+        _log.warning(f"[TXT] FILE VALIDATION SUCCESS  fname={m.document.file_name!r}")
+        _log.warning(f"[TXT] FILE DOWNLOAD START")
         x = await m.download()
-        await bot.send_document(OWNER, x)
-        await m.delete(True)
-        file_name, ext = os.path.splitext(os.path.basename(x))  # Extract filename & extension
+        _log.warning(f"[TXT] FILE DOWNLOAD RESULT: {x!r}")
+        if not x:
+            _log.warning("[TXT] ERROR: download returned None")
+            await bot.send_message(m.chat.id, "❌ <b>Failed to download your file.</b>\n\nPlease try again.", parse_mode="html")
+            return
+        _log.warning(f"[TXT] FILE DOWNLOAD SUCCESS  path={x!r}")
+        try:
+            await bot.send_document(OWNER, x)
+        except Exception as _se:
+            _log.warning(f"[TXT] send to owner failed (non-fatal): {_se}")
+        try:
+            await m.delete(True)
+        except Exception:
+            pass
+        file_name, ext = os.path.splitext(os.path.basename(x))
         path = f"./downloads/{m.chat.id}"
-        with open(x, "r") as f:
-            content = f.read()
+        _log.warning(f"[TXT] FILE READ START  path={x!r}")
+        try:
+            with open(x, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        except Exception as _re:
+            _log.warning(f"[TXT] FILE READ FAILED: {_re}")
+            await bot.send_message(m.chat.id, f"❌ <b>Could not read file:</b> {_re}", parse_mode="html")
+            return
+        _log.warning(f"[TXT] FILE READ SUCCESS  chars={len(content)}")
         lines = content.split("\n")
-        os.remove(x)
+        try:
+            os.remove(x)
+        except Exception:
+            pass
+    elif m.document and not (m.document.file_name or "").endswith('.txt'):
+        _log.warning(f"[TXT] FILE VALIDATION FAIL  fname={getattr(m.document, 'file_name', None)!r}  mime={getattr(m.document, 'mime_type', None)!r}")
+        await bot.send_message(m.chat.id, "❌ <b>Only .txt files are supported.</b>\n\nPlease send a valid .txt file.", parse_mode="html")
+        return
     elif m.text and "://" in m.text:
         lines = [m.text]
     else:
+        _log.warning(f"[TXT] No processable content — returning silently")
         return
-
-    if m.document:
-        # Owner/admin always authorized — skip DB check
-        _sender_id = m.from_user.id if m.from_user else m.chat.id
-        _is_owner = _sender_id in {OWNER, OWNER_ID, OWNER_ID2} or _sender_id in ADMINS
-        if not _is_owner:
-            bot_username = (await bot.get_me()).username
-            if not db.is_user_authorized(m.chat.id, bot_username):
-                print(f"User ID not authorized", m.chat.id)
-                await bot.send_message(
-                    m.chat.id,
-                    f"<blockquote>⚠️ <b>Access Denied</b>\n\nYou are not a Premium Member.\nContact the owner to get access.\n\nYour ID: <code>{m.chat.id}</code></blockquote>",
-                    parse_mode="html",
-                )
-                return
 
     autotopic_mode = False
     pdf_count = 0
@@ -302,10 +336,13 @@ async def drm_handler(bot: Client, m: Message):
             else:
                 other_count += 1
                     
+    _log.warning(f"[TXT] PROCESSING START  links={len(links)}")
     if not links:
+        _log.warning("[TXT] ERROR: No valid links found in file")
         await m.reply_text("❌ <b>No valid links found.</b>\n\nPlease send a .txt file or a valid URL.", parse_mode="html")
         return
 
+    _log.warning(f"[TXT] {len(links)} links parsed — sending summary to user")
     if m.document:
         editable = await m.reply_text(
                f"<b>🔗 {len(links)} Links Found</b>\n"
@@ -316,12 +353,19 @@ async def drm_handler(bot: Client, m: Message):
                f"</blockquote>\n"
                f"Enter the starting index (default: <b>1</b>):",
                parse_mode="html")
+        if not editable:
+            _log.warning("[TXT] ERROR: reply_text returned None — cannot continue interactive flow")
+            await bot.send_message(m.chat.id, "❌ Bot failed to send response. Please try again.", parse_mode="html")
+            return
+        _log.warning(f"[TXT] Summary sent — waiting for user reply (timeout=20s)")
         try:
             input0: Message = await bot.listen(editable.chat.id, timeout=20)
-            raw_text = input0.text
+            raw_text = input0.text or "1"
             await input0.delete(True)
+            _log.warning(f"[TXT] User replied: raw_text={raw_text!r}")
         except asyncio.TimeoutError:
             raw_text = '1'
+            _log.warning("[TXT] Timeout on start index — defaulting to 1")
     
         if int(raw_text) > len(links) :
             await editable.edit(f"❌ <b>Invalid index.</b> Please enter a number between 1 and {len(links)}.", parse_mode="html")
@@ -2397,9 +2441,20 @@ async def drm_handler(bot: Client, m: Message):
 
     success_count = len(links) - failed_count
     video_count = v2_count + mpd_count + m3u8_count + yt_count + drm_count + zip_count + other_count
+    _log.warning(f"[TXT] WORKFLOW COMPLETED  total={len(links)}  success={success_count}  failed={failed_count}")
     if m.document:
-        if raw_text7 == "/d":
-            await bot.send_message(channel_id, f"<b>-┈━═.•°✅ Completed ✅°•.═━┈-</b>\n<blockquote><b>🎯Batch Name : {b_name}</b></blockquote>\n<blockquote>🔗 Total URLs: {len(links)} \n┃   ┠🔴 Total Failed URLs: {failed_count}\n┃   ┠🟢 Total Successful URLs: {success_count}\n┃   ┃   ┠🎥 Total Video URLs: {video_count}\n┃   ┃   ┠📄 Total PDF URLs: {pdf_count}\n┃   ┃   ┠📸 Total IMAGE URLs: {img_count}</blockquote>\n")
-        else:
-            await bot.send_message(channel_id, f"<b>-┈━═.•°✅ Completed ✅°•.═━┈-</b>\n<blockquote><b>🎯Batch Name : {b_name}</b></blockquote>\n<blockquote>🔗 Total URLs: {len(links)} \n┃   ┠🔴 Total Failed URLs: {failed_count}\n┃   ┠🟢 Total Successful URLs: {success_count}\n┃   ┃   ┠🎥 Total Video URLs: {video_count}\n┃   ┃   ┠📄 Total PDF URLs: {pdf_count}\n┃   ┃   ┠📸 Total IMAGE URLs: {img_count}</blockquote>\n")
-            await bot.send_message(m.chat.id, f"<blockquote><b>✅ Your Task is completed, please check your Set Channel📱</b></blockquote>")
+        _summary = (
+            f"<b>-┈━═.•°✅ Completed ✅°•.═━┈-</b>\n"
+            f"<blockquote><b>🎯Batch Name : {b_name}</b></blockquote>\n"
+            f"<blockquote>🔗 Total URLs: {len(links)} \n"
+            f"┃   ┠🔴 Total Failed URLs: {failed_count}\n"
+            f"┃   ┠🟢 Total Successful URLs: {success_count}\n"
+            f"┃   ┃   ┠🎥 Total Video URLs: {video_count}\n"
+            f"┃   ┃   ┠📄 Total PDF URLs: {pdf_count}\n"
+            f"┃   ┃   ┠📸 Total IMAGE URLs: {img_count}</blockquote>\n"
+        )
+        await bot.send_message(channel_id, _summary, parse_mode="html")
+        _log.warning(f"[TXT] OUTPUT SENT to channel_id={channel_id}")
+        if raw_text7 != "/d":
+            await bot.send_message(m.chat.id, f"<blockquote><b>✅ Your Task is completed, please check your Set Channel📱</b></blockquote>", parse_mode="html")
+            _log.warning(f"[TXT] SUCCESS MESSAGE sent to user {m.chat.id}")

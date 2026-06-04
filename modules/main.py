@@ -222,15 +222,53 @@ class _Msg:
             logging.warning(f"[_Msg] reply_document: {e}")
 
     async def download(self, file_name=None):
-        """Download file using pyrogram (works with file_id from HTTP API)."""
+        """Download file via HTTP Bot API (reliable in HTTP-polling mode)."""
+        if not self.document:
+            logging.warning("[TXT] download() called but no document in message")
+            return None
+        file_id = self.document.file_id
+        fname   = file_name or self.document.file_name or "file"
+        logging.warning(f"[TXT] FILE DOWNLOAD START  file_id={file_id!r}  fname={fname!r}")
         try:
-            if self.document:
-                return await self._client.download_media(
-                    self.document.file_id,
-                    file_name=file_name or self.document.file_name,
-                )
+            async with aiohttp.ClientSession() as _sess:
+                # Step 1: get file path from Telegram
+                async with _sess.get(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+                    params={"file_id": file_id},
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as _r:
+                    _data = await _r.json()
+                if not _data.get("ok"):
+                    logging.warning(f"[TXT] getFile failed: {_data}")
+                    return None
+                _fp = _data["result"]["file_path"]
+                logging.warning(f"[TXT] getFile OK  path={_fp!r}")
+                # Step 2: download the file bytes
+                async with _sess.get(
+                    f"https://api.telegram.org/file/bot{BOT_TOKEN}/{_fp}",
+                    timeout=aiohttp.ClientTimeout(total=120),
+                ) as _r2:
+                    _content = await _r2.read()
+            # Step 3: save to downloads/
+            os.makedirs("downloads", exist_ok=True)
+            _local = os.path.join("downloads", fname)
+            with open(_local, "wb") as _f:
+                _f.write(_content)
+            logging.warning(f"[TXT] FILE DOWNLOAD SUCCESS  saved={_local!r}  size={len(_content)}")
+            return _local
         except Exception as e:
-            logging.warning(f"[_Msg] download failed: {e}")
+            logging.warning(f"[TXT] FILE DOWNLOAD FAILED: {e}")
+            # Fallback: try pyrogram download_media
+            try:
+                logging.warning("[TXT] Trying pyrogram download_media fallback...")
+                _path = await asyncio.wait_for(
+                    self._client.download_media(file_id, file_name=fname),
+                    timeout=60,
+                )
+                logging.warning(f"[TXT] pyrogram fallback OK: {_path!r}")
+                return _path
+            except Exception as e2:
+                logging.warning(f"[TXT] pyrogram fallback FAILED: {e2}")
         return None
 
     async def delete(self, revoke=True):
