@@ -131,6 +131,73 @@ bot.listen = _bot_listen
 # This runs alongside pyrogram and dispatches all incoming commands/messages
 # ═══════════════════════════════════════════════════════════════════════════════
 
+class _EditProxy:
+    """HTTP-based editable message proxy — returned by _Msg.reply_text().
+    Handles string parse modes and never calls pyrogram MTProto."""
+    def __init__(self, msg_dict: dict, chat_id: int):
+        self._msg_id = msg_dict.get("message_id", 0)
+        self._chat_id = chat_id
+        self.chat = type("_C", (), {"id": chat_id})()
+        self.id = self._msg_id
+
+    def _pm(self, parse_mode):
+        if not parse_mode:
+            return None
+        _s = str(parse_mode).lower().replace("parsemode.", "")
+        return "HTML" if "html" in _s else "Markdown"
+
+    def _serialize_rm(self, reply_markup):
+        if not reply_markup:
+            return None
+        import json as _j
+        from pyrogram.types import InlineKeyboardMarkup as _IKM
+        if isinstance(reply_markup, _IKM):
+            return _j.dumps({"inline_keyboard": [
+                [{"text": b.text, "callback_data": b.callback_data} if b.callback_data
+                 else {"text": b.text, "url": b.url} for b in row]
+                for row in reply_markup.inline_keyboard
+            ]})
+        return None
+
+    async def _http_edit(self, text, parse_mode=None, reply_markup=None,
+                         disable_web_page_preview=False, **kw):
+        _payload = {"chat_id": self._chat_id, "message_id": self._msg_id, "text": text}
+        _pm = self._pm(parse_mode)
+        if _pm:
+            _payload["parse_mode"] = _pm
+        if disable_web_page_preview:
+            _payload["disable_web_page_preview"] = True
+        _rm = self._serialize_rm(reply_markup)
+        if _rm:
+            _payload["reply_markup"] = _rm
+        try:
+            async with aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+                    json=_payload, timeout=aiohttp.ClientTimeout(total=15),
+                )
+        except Exception as e:
+            logging.warning(f"[EditProxy] edit failed: {e}")
+        return self
+
+    async def edit(self, text, **kw):
+        return await self._http_edit(text, **kw)
+
+    async def edit_text(self, text, **kw):
+        return await self._http_edit(text, **kw)
+
+    async def delete(self, revoke=True):
+        try:
+            async with aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+                    json={"chat_id": self._chat_id, "message_id": self._msg_id},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+        except Exception:
+            pass
+
+
 class _Msg:
     """Minimal pyrogram-compatible Message wrapper built from HTTP API dict."""
     __slots__ = (
@@ -205,14 +272,39 @@ class _Msg:
 
     async def reply_text(self, text, reply_markup=None, parse_mode=None,
                          disable_web_page_preview=False, **kw):
-        from pyrogram.enums import ParseMode as _PM
-        kwargs = {"disable_web_page_preview": disable_web_page_preview}
-        if reply_markup:
-            kwargs["reply_markup"] = reply_markup
+        """Send a message and return an _EditProxy (HTTP-based, handles string parse modes)."""
+        _payload = {"chat_id": self.chat.id, "text": text}
         if parse_mode:
-            _pm_map = {"html": _PM.HTML, "markdown": _PM.MARKDOWN, "disabled": _PM.DISABLED}
-            kwargs["parse_mode"] = _pm_map.get(str(parse_mode).lower(), _PM.HTML)
-        return await self._client.send_message(self.chat.id, text, **kwargs)
+            _payload["parse_mode"] = str(parse_mode).upper() if hasattr(parse_mode, 'value') else str(parse_mode).title()
+            # Normalise to Telegram API strings: HTML or Markdown
+            _pm_str = str(parse_mode).lower().replace("parsemode.", "")
+            _payload["parse_mode"] = "HTML" if "html" in _pm_str else "Markdown"
+        if disable_web_page_preview:
+            _payload["disable_web_page_preview"] = True
+        if reply_markup:
+            import json as _json
+            from pyrogram.types import InlineKeyboardMarkup as _IKM
+            if isinstance(reply_markup, _IKM):
+                _payload["reply_markup"] = _json.dumps({
+                    "inline_keyboard": [
+                        [{"text": btn.text, "callback_data": btn.callback_data} if btn.callback_data
+                         else {"text": btn.text, "url": btn.url}
+                         for btn in row]
+                        for row in reply_markup.inline_keyboard
+                    ]
+                })
+        try:
+            async with aiohttp.ClientSession() as _s:
+                _r = await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json=_payload, timeout=aiohttp.ClientTimeout(total=15),
+                )
+                _rj = await _r.json()
+            if _rj.get("ok"):
+                return _EditProxy(_rj["result"], self.chat.id)
+        except Exception as e:
+            logging.warning(f"[_Msg] reply_text HTTP failed: {e}")
+        return None
 
     async def reply_document(self, document, caption="", **kw):
         try:
