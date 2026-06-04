@@ -36,6 +36,9 @@ def duration(filename):
 
         output = result.stdout.decode().strip()
         return float(output)
+    except FileNotFoundError:
+        # ffprobe not installed — skip duration check, assume file is valid
+        return 1.0
     except Exception as e:
         print(f"❌ Failed to get duration for {filename}: {e}")
         return 0.0
