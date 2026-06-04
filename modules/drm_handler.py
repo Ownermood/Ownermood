@@ -999,11 +999,43 @@ async def drm_handler(bot: Client, m: Message):
                 url = url.split("bcov_auth")[0]+bcov
 
             elif any(x in url for x in ["d1d34p8vz63oiq", "sec1.pw.live", "pw.live/video", "d26g5yszhu7brj", "d3pcsg4b0bsad5"]):
-                # Direct PW CDN/CloudFront URLs — route through anonymous player API
-                _pw_api = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url={url}"
+                # Direct PW CDN/CloudFront URLs — call anonymous API to get MPD+KEYS
+                _pw_api_url = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url={url}"
                 if raw_text4 and raw_text4 not in ('/d', 'd', ''):
-                    _pw_api += f"&token={raw_text4}"
-                url = _pw_api
+                    _pw_api_url += f"&token={raw_text4}"
+                _pw_api_success = False
+                for _pw_attempt in range(1, 4):
+                    try:
+                        print(f"🔄 PW API attempt {_pw_attempt}/3: {_pw_api_url[:80]}...")
+                        _pw_resp = requests.get(_pw_api_url, timeout=30)
+                        _pw_data = _pw_resp.json()
+                        if isinstance(_pw_data, dict) and "MPD" in _pw_data and "KEYS" in _pw_data:
+                            mpd = _pw_data["MPD"]
+                            _pw_keys = _pw_data["KEYS"]
+                            keys_string = " ".join([f"--key {k}" for k in _pw_keys]) if isinstance(_pw_keys, list) else ""
+                            url = mpd
+                            print(f"✅ PW DRM — MPD={mpd[:60]}  keys={len(_pw_keys)}")
+                            _pw_api_success = True
+                            break
+                        elif isinstance(_pw_data, dict) and "url" in _pw_data:
+                            url = _pw_data["url"]
+                            keys_string = ""
+                            print(f"✅ PW Non-DRM — direct URL")
+                            _pw_api_success = True
+                            break
+                        else:
+                            print(f"⚠️ PW API attempt {_pw_attempt}/3: unexpected response: {str(_pw_data)[:200]}")
+                            if _pw_attempt < 3:
+                                await asyncio.sleep(10)
+                    except Exception as _pw_e:
+                        print(f"❌ PW API attempt {_pw_attempt}/3 error: {_pw_e}")
+                        if _pw_attempt < 3:
+                            await asyncio.sleep(10)
+                if not _pw_api_success:
+                    await m.reply_text(f"<b>{str(count).zfill(3)}.</b> ❌ PW API failed after 3 retries — skipping")
+                    count += 1
+                    failed_count += 1
+                    continue
             elif "dragoapi.vercel.app" in url and "*" in url :
     # Split into base URL and key
              parts = url.split("*", 1)
@@ -1026,10 +1058,43 @@ async def drm_handler(bot: Client, m: Message):
               url = final_url.strip()
             
             elif "childId" in url and "parentId" in url:
-                _pw_base = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url={url}"
+                # PW childId+parentId URLs — call anonymous API to get MPD+KEYS
+                _pw_api_url = f"https://anonymouspwplayerrr-3dba7e3fb6a8.herokuapp.com/pw?url=https://{url}"
                 if raw_text4 and raw_text4 not in ('/d', 'd', ''):
-                    _pw_base += f"&token={raw_text4}"
-                url = _pw_base
+                    _pw_api_url += f"&token={raw_text4}"
+                _pw_api_success = False
+                for _pw_attempt in range(1, 4):
+                    try:
+                        print(f"🔄 PW API attempt {_pw_attempt}/3 (childId)...")
+                        _pw_resp = requests.get(_pw_api_url, timeout=30)
+                        _pw_data = _pw_resp.json()
+                        if isinstance(_pw_data, dict) and "MPD" in _pw_data and "KEYS" in _pw_data:
+                            mpd = _pw_data["MPD"]
+                            _pw_keys = _pw_data["KEYS"]
+                            keys_string = " ".join([f"--key {k}" for k in _pw_keys]) if isinstance(_pw_keys, list) else ""
+                            url = mpd
+                            print(f"✅ PW DRM — MPD={mpd[:60]}  keys={len(_pw_keys)}")
+                            _pw_api_success = True
+                            break
+                        elif isinstance(_pw_data, dict) and "url" in _pw_data:
+                            url = _pw_data["url"]
+                            keys_string = ""
+                            print(f"✅ PW Non-DRM — direct URL")
+                            _pw_api_success = True
+                            break
+                        else:
+                            print(f"⚠️ PW API attempt {_pw_attempt}/3: unexpected: {str(_pw_data)[:200]}")
+                            if _pw_attempt < 3:
+                                await asyncio.sleep(10)
+                    except Exception as _pw_e:
+                        print(f"❌ PW API attempt {_pw_attempt}/3 error: {_pw_e}")
+                        if _pw_attempt < 3:
+                            await asyncio.sleep(10)
+                if not _pw_api_success:
+                    await m.reply_text(f"<b>{str(count).zfill(3)}.</b> ❌ PW API failed after 3 retries — skipping")
+                    count += 1
+                    failed_count += 1
+                    continue
                            
             elif 'encrypted.m' in url and '*' in url and not is_appx_xor_video:
                  appxkey = url.split('*')[1]
@@ -1221,8 +1286,6 @@ async def drm_handler(bot: Client, m: Message):
                cmd = f'yt-dlp --concurrent-fragments 5 --add-header "referer:https://web.classplusapp.com/" --add-header "x-cdn-tag:empty" -f "{ytf}" "{url}" -o "{name}.mp4"'
             elif "youtube.com" in url or "youtu.be" in url:
                 cmd = f'yt-dlp --concurrent-fragments 5 --cookies youtube_cookies.txt -f "{ytf}" "{url}" -o "{name}".mp4'
-            elif "anonymouspwplayerrr" in url or "pw.live" in url or "sec1.pw.live" in url or "d1d34p8vz63oiq" in url:
-                cmd = f'yt-dlp --concurrent-fragments 5 --add-header "Referer:https://www.pw.live/" --add-header "Origin:https://www.pw.live" -f "{ytf}" "{url}" -o "{name}.mp4"'
             else:
                 cmd = f'yt-dlp --concurrent-fragments 5 -f "{ytf}" "{url}" -o "{name}.mp4"'
 
