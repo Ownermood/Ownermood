@@ -88,17 +88,19 @@ AES_IV = "f12aa767375c0e58fa0b73c9bb9cb06f"
 
 # ─── aria2c args for maximum download speed ───────────────────────────────────
 ARIA2C_OPTS = (
-    "-x 16 "          # 16 connections per server
-    "-j 16 "          # 16 parallel downloads
-    "-k 1M "          # 1 MB chunk size
-    "-s 16 "          # 16 splits per file
-    "--retry-wait=3 "
-    "--max-tries=10 "
+    "-x 32 "               # 32 connections per server (max speed)
+    "-j 32 "               # 32 parallel downloads
+    "-k 2M "               # 2 MB chunk size
+    "-s 32 "               # 32 splits per file
+    "--min-split-size=2M "
+    "--retry-wait=2 "
+    "--max-tries=15 "
     "--timeout=60 "
     "--connect-timeout=10 "
     "--allow-overwrite=true "
     "--auto-file-renaming=false "
     "--console-log-level=error "
+    "--optimize-concurrent-downloads=true "
 )
 
 # ─── yt-dlp base arguments (speed-optimised) ──────────────────────────────────
@@ -873,7 +875,7 @@ async def drm_handler(bot: Client, m: Message):
                         url = re.search(r"(https://.*?playlist.m3u8.*?)\"", text).group(1)
 
             if "acecwply" in url:
-                cmd = f'yt-dlp --concurrent-fragments 5 -o "{name}.%(ext)s" -f "bestvideo[height<={raw_text2}]+bestaudio" --hls-prefer-ffmpeg --no-keep-video --remux-video mkv --no-warning "{url}"'
+                cmd = f'yt-dlp --concurrent-fragments 16 -o "{name}.%(ext)s" -f "bestvideo[height<={raw_text2}]+bestaudio" --hls-prefer-ffmpeg --no-keep-video --remux-video mkv --no-warning "{url}"'
          
             elif "https://cpmc/" in url:
                url = url.replace("https://cpmc/", "")  # Extract contentId
@@ -1281,13 +1283,13 @@ async def drm_handler(bot: Client, m: Message):
              video_path = await download_youtube(url, ytf, name)
            
             if "jw-prod" in url:
-                cmd = f'yt-dlp --concurrent-fragments 5 -o "{name}.mp4" "{url}"'
+                cmd = f'yt-dlp --concurrent-fragments 16 -o "{name}.mp4" "{url}"'
             elif "webvideos.classplusapp." in url:
-               cmd = f'yt-dlp --concurrent-fragments 5 --add-header "referer:https://web.classplusapp.com/" --add-header "x-cdn-tag:empty" -f "{ytf}" "{url}" -o "{name}.mp4"'
+               cmd = f'yt-dlp --concurrent-fragments 16 --add-header "referer:https://web.classplusapp.com/" --add-header "x-cdn-tag:empty" -f "{ytf}" "{url}" -o "{name}.mp4"'
             elif "youtube.com" in url or "youtu.be" in url:
-                cmd = f'yt-dlp --concurrent-fragments 5 --cookies youtube_cookies.txt -f "{ytf}" "{url}" -o "{name}".mp4'
+                cmd = f'yt-dlp --concurrent-fragments 16 --cookies youtube_cookies.txt -f "{ytf}" "{url}" -o "{name}".mp4'
             else:
-                cmd = f'yt-dlp --concurrent-fragments 5 -f "{ytf}" "{url}" -o "{name}.mp4"'
+                cmd = f'yt-dlp --concurrent-fragments 16 -f "{ytf}" "{url}" -o "{name}.mp4"'
 
             # Inject Appx referer headers into cmd if classified as appx link
             if appx_referer_needed and "--add-header" not in cmd:
@@ -1614,7 +1616,7 @@ async def drm_handler(bot: Client, m: Message):
 
                             # Download with Appx headers
                             appx_hdr_args = get_ytdlp_appx_header_args()
-                            cmd = f'yt-dlp --concurrent-fragments 5 {appx_hdr_args} -o "{name}.mkv" "{url}" -R 25 --fragment-retries 25'
+                            cmd = f'yt-dlp --concurrent-fragments 16 {appx_hdr_args} -o "{name}.mkv" "{url}" -R 25 --fragment-retries 25'
                             subprocess.run(cmd, shell=True)
 
                             # XOR decrypt the downloaded file
@@ -1764,7 +1766,7 @@ async def drm_handler(bot: Client, m: Message):
                             hls_key_arg = ""
                             if appx_info.hls_key:
                                 hls_key_arg = f' --hls-key "{appx_info.hls_key}"'
-                            cmd = f'yt-dlp --concurrent-fragments 5 {appx_hdr_args} --extractor-args "generic:is_live=false" --no-keep-fragments{hls_key_arg} -o "{name}.mkv" "{url}" -R 25 --fragment-retries 25'
+                            cmd = f'yt-dlp --concurrent-fragments 16 {appx_hdr_args} --extractor-args "generic:is_live=false" --no-keep-fragments{hls_key_arg} -o "{name}.mkv" "{url}" -R 25 --fragment-retries 25'
                             subprocess.run(cmd, shell=True)
 
                             filename = f"{name}.mkv"

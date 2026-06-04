@@ -120,7 +120,7 @@ bot = Client(
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
-    max_concurrent_transmissions=10,
+    max_concurrent_transmissions=25,  # max parallel upload/download streams
 )
 
 # ── HTTP-based listen() — works with our HTTP polling engine ──────────────────

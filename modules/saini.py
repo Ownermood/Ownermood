@@ -44,7 +44,7 @@ def duration(filename):
         return 0.0
 
 # ─── Fast PDF / file downloader (chunked, retry, resume) ──────────────────────
-_DL_CHUNK  = 512 * 1024          # 512 KB per chunk
+_DL_CHUNK  = 4 * 1024 * 1024     # 4 MB per chunk (was 512 KB)
 _DL_TIMEOUT = aiohttp.ClientTimeout(total=300, connect=15, sock_read=60)
 _BEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36",
@@ -99,14 +99,14 @@ async def decrypt_and_merge_video(mpd_url, keys_string, output_path, output_name
         print(f"🔑 Keys: {keys_string}")
 
         # ── Step 1: Download with aria2c (16 connections) ─────────────────────
-        aria_args = "-x 16 -j 16 -k 1M -s 16 --retry-wait=3 --max-tries=10 --allow-overwrite=true --auto-file-renaming=false"
+        aria_args = "-x 32 -j 32 -k 2M -s 32 --min-split-size=2M --retry-wait=2 --max-tries=15 --allow-overwrite=true --auto-file-renaming=false --optimize-concurrent-downloads=true"
         cmd1 = (
             f'yt-dlp -f "bv[height<={quality}]+ba/b" '
             f'-o "{output_path}/file.%(ext)s" '
             f'--allow-unplayable-formats '
             f'--no-check-certificate '
-            f'--concurrent-fragments 16 '
-            f'--fragment-retries 10 '
+            f'--concurrent-fragments 25 '
+            f'--fragment-retries 25 '
             f'--hls-use-mpegts '
             f'--external-downloader aria2c '
             f'--downloader-args "aria2c:{aria_args}" '
@@ -351,7 +351,7 @@ async def download_m3u8_async(url: str, filename: str):
                     
                     with open(final_file, 'wb') as f:
                         downloaded = 0
-                        async for chunk in resp.content.iter_chunked(1024 * 1024): # 1MB chunks
+                        async for chunk in resp.content.iter_chunked(4 * 1024 * 1024): # 4MB chunks
                             if chunk:
                                 f.write(chunk)
                                 downloaded += len(chunk)
@@ -367,7 +367,8 @@ async def download_m3u8_async(url: str, filename: str):
 
     # If not a direct file, assume M3U8/Playlist
     print(f"📂 parsing potential M3U8 playlist...")
-    async with aiohttp.ClientSession(headers=headers) as session:
+    _connector = aiohttp.TCPConnector(limit=100, ttl_dns_cache=300, ssl=False)
+    async with aiohttp.ClientSession(headers=headers, connector=_connector) as session:
         try:
             r = await session.get(url, timeout=30)
             text = await r.text()
@@ -386,8 +387,8 @@ async def download_m3u8_async(url: str, filename: str):
             total_segments = len(segments)
             print(f"🚀 Downloading {total_segments} segments for {filename} (Batch Mode)...")
 
-            # Batch size to control memory usage
-            BATCH_SIZE = 20 
+            # Batch size — higher = faster parallel download
+            BATCH_SIZE = 50
 
             with open(final_file, "wb") as f:
                 for i in range(0, total_segments, BATCH_SIZE):
@@ -422,9 +423,9 @@ async def download_video(url, cmd, name, check_duration=True):
     # Use --concurrent-fragments for HLS (faster native parallel download)
     # and aria2c for non-HLS single-file downloads
     if any(ext in url for ext in [".m3u8", "master.m3u8", "playlist.m3u8"]):
-        download_cmd = f'{cmd} -R 10 --fragment-retries 15 --concurrent-fragments 16 --no-check-certificates'
+        download_cmd = f'{cmd} -R 25 --fragment-retries 25 --concurrent-fragments 25 --no-check-certificates'
     else:
-        download_cmd = f'{cmd} -R 10 --fragment-retries 15 --external-downloader aria2c --downloader-args "aria2c: -x 16 -j 16 -k 1M -s 16" --no-check-certificates'
+        download_cmd = f'{cmd} -R 25 --fragment-retries 25 --external-downloader aria2c --downloader-args "aria2c: -x 32 -j 32 -k 2M -s 32 --min-split-size=2M --retry-wait=2 --max-tries=15 --allow-overwrite=true" --no-check-certificates'
     print(download_cmd)
     logging.info(download_cmd)
 
@@ -527,7 +528,7 @@ def download_raw_file(url: str, filename: str) -> str | None:
                 return None
 
             total = int(r.headers.get("content-length", 0)) + downloaded
-            chunk_size = 1024 * 1024  # 1 MB chunks (was 256 KB)
+            chunk_size = 4 * 1024 * 1024  # 4 MB chunks
 
             with open(file_path, "ab") as f:
                 for chunk in r.iter_content(chunk_size=chunk_size):
