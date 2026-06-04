@@ -4,12 +4,10 @@ import sys
 import time
 import asyncio
 import json
-import pytz
 import requests
 # Add root directory to path to allow imports from root modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import m3u8
 import subprocess
 import urllib
 import urllib.parse
@@ -17,7 +15,6 @@ import yt_dlp
 import tgcrypto
 import cloudscraper
 from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
 from base64 import b64encode, b64decode
 from logs import logging
 from bs4 import BeautifulSoup
@@ -85,10 +82,7 @@ from pyrogram.errors import FloodWait, PeerIdInvalid, UserIsBlocked, InputUserDe
 from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import aiohttp
-import aiofiles
-import zipfile
 import shutil
-import ffmpeg
 
 # Patch pyrogram Message to add .edit() as alias for .edit_text()
 try:
@@ -469,15 +463,11 @@ async def _dispatch_http(upd: dict):
         elif cmd_part == "users":
             await auth.list_users_cmd(bot, m)
         elif cmd_part == "plan":
-            _uid3 = (m.from_user.id if m.from_user else None) or m.chat.id
-            if _uid3 in {OWNER, OWNER_ID, OWNER_ID2}:
-                await _pm.plan_command(bot, m)
-            else:
-                try:
-                    _bu = (await bot.get_me()).username
-                except Exception:
-                    _bu = "bot"
-                await show_plan_for_user_msg(bot, m, _bu)
+            try:
+                _bu = (await bot.get_me()).username
+            except Exception:
+                _bu = "bot"
+            await show_plan_for_user_msg(bot, m, _bu)
         elif cmd_part == "id":
             await id_command(bot, m)
         elif cmd_part == "info":
@@ -1515,8 +1505,7 @@ def _wire_cb_handlers():
         except Exception as _e:
             logging.warning(f"[WIRE] could not register cb {pattern}: {_e}")
 
-    # Register Plan Manager callbacks (pm_* prefix)
-    _pm.wire_plan_callbacks(_register_cb)
+
 
 # called after all handlers defined (at bottom of file before __main__)
 
