@@ -620,30 +620,40 @@ async def start(client, m: Message):
     _fn_safe = _html_safe.escape(first_name)
     _mention = f'<a href="tg://user?id={user_id}">{_fn_safe}</a>'
 
-    # Simple welcome for everyone — plan shown only via Plans button
-    _sub_block = ""
-    if is_authorized and not is_admin:
-        try:
-            _info = db.get_user_expiry_info(user_id, bot_username)
-            if _info:
-                _days = _info.get("days_left", 0)
-                _expiry = _info.get("expiry_date", "—")
-                _sub_block = (
-                    f"\n<blockquote>"
-                    f"📅 Expiry  ›  <b>{_expiry}</b>\n"
-                    f"⏳ Remaining  ›  <b>{_days} days</b>"
-                    f"</blockquote>"
-                )
-        except Exception:
-            pass
-
-    _greeting = "Welcome back" if is_authorized else "Welcome"
-    _final_text = (
-        f"👋 <b>{_greeting}, {_mention}!</b>"
-        f"{_sub_block}\n\n"
-        f"Tap a button below to get started! 🚀\n\n"
-        f"👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
-    )
+    if is_authorized:
+        # ── Premium welcome ───────────────────────────────────────────────────
+        _sub_block = ""
+        if not is_admin:
+            try:
+                _info = db.get_user_expiry_info(user_id, bot_username)
+                if _info:
+                    _days = _info.get("days_left", 0)
+                    _expiry = _info.get("expiry_date", "—")
+                    _sub_block = (
+                        f"<blockquote>"
+                        f"📅 Expiry  ›  <b>{_expiry}</b>\n"
+                        f"⏳ Remaining  ›  <b>{_days} days</b>"
+                        f"</blockquote>\n\n"
+                    )
+            except Exception:
+                pass
+        _final_text = (
+            f"🎉 <b>Welcome back, {_mention}, to Sugar Daddy DRM Bot!</b> 🎉\n\n"
+            f"✅ <b>You are on the Premium Version.</b>\n\n"
+            f"{_sub_block}"
+            f"<blockquote>I am here to make your life easier by downloading videos from your <b>.txt</b> file and uploading them directly to Telegram!</blockquote>\n\n"
+            f"Want to get started? Press /id\n\n"
+            f"💬 <b>Contact:</b> 👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
+        )
+    else:
+        # ── Free version welcome ──────────────────────────────────────────────
+        _final_text = (
+            f"🎉 <b>Welcome {_mention} to Sugar Daddy DRM Bot!</b> 🎉\n\n"
+            f"📱 <b>You are currently using the Free Version.</b>\n\n"
+            f"<blockquote>I am here to make your life easier by downloading videos from your <b>.txt</b> file and uploading them directly to Telegram!</blockquote>\n\n"
+            f"Want to get started? Press /id\n\n"
+            f"💬 <b>Contact:</b> 👤 <a href='{CREDIT_LINK}'>{CREDIT}</a> to get the subscription and unlock the full potential of your new bot! 🔐"
+        )
 
     await edit_msg(_final_text, reply_markup=keyboard)
   except Exception as _e:
