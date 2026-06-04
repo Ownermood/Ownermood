@@ -628,41 +628,43 @@ async def start(client, m: Message):
     _fn_safe = _html_safe.escape(first_name)
     _mention = f'<a href="tg://user?id={user_id}">{_fn_safe}</a>'
 
+    _username = (m.from_user.username if m.from_user else "") or ""
     if is_authorized:
-        # ── Premium user greeting ─────────────────────────────────────────────
-        _sub_block = ""
-        try:
-            _info = db.get_user_expiry_info(user_id, bot_username)
-            if _info and not is_admin:
-                _days = _info.get("days_left", 0)
-                _expiry = _info.get("expiry_date", "—")
-                _sub_block = (
-                    f"\n<blockquote>"
-                    f"📅 Expiry  ›  <b>{_expiry}</b>\n"
-                    f"⏳ Remaining  ›  <b>{_days} days</b>"
-                    f"</blockquote>"
-                )
-        except Exception:
-            pass
-
-        _final_text = (
-            f"🌟 <b>Welcome back, {_mention}!</b>\n\n"
-            f"╔══════════════════════╗\n"
-            f"  ✅  <b>Premium Member</b>\n"
-            f"╚══════════════════════╝"
-            f"{_sub_block}\n\n"
-            f"You have <b>full access</b> to all features.\n"
-            f"Tap a button below to get started! 🚀\n\n"
-            f"👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
-        )
+        # Premium user — show their plan or a simple welcome
+        _raw = db.get_setting("premium_plan_content") or db.get_setting("default_plan_content")
+        if _raw:
+            _final_text = _render_plan(first_name, user_id, _username, _raw)
+        else:
+            _sub_block = ""
+            try:
+                _info = db.get_user_expiry_info(user_id, bot_username)
+                if _info and not is_admin:
+                    _days = _info.get("days_left", 0)
+                    _expiry = _info.get("expiry_date", "—")
+                    _sub_block = (
+                        f"\n<blockquote>"
+                        f"📅 Expiry  ›  <b>{_expiry}</b>\n"
+                        f"⏳ Remaining  ›  <b>{_days} days</b>"
+                        f"</blockquote>"
+                    )
+            except Exception:
+                pass
+            _final_text = (
+                f"👋 <b>Welcome back, {_mention}!</b>"
+                f"{_sub_block}\n\n"
+                f"Tap a button below to get started! 🚀\n\n"
+                f"👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
+            )
     else:
-        # ── Non-premium user greeting + plan info ─────────────────────────────
-        _username = (m.from_user.username if m.from_user else "") or ""
+        # Non-premium user — show default plan
         _plan_text = _render_plan(first_name, user_id, _username)
-        _final_text = (
-            f"👋 <b>Welcome, {_mention}!</b>\n\n"
-            f"{_plan_text}"
-        )
+        if _plan_text:
+            _final_text = _plan_text
+        else:
+            _final_text = (
+                f"👋 <b>Welcome, {_mention}!</b>\n\n"
+                f"❌ No plan has been set yet.\n\nContact the administrator for details."
+            )
 
     await edit_msg(_final_text, reply_markup=keyboard)
   except Exception as _e:
@@ -792,12 +794,15 @@ async def upgrade_button(client, callback_query):
 
 # ── Shared plan display logic ─────────────────────────────────────────────────
 
-def _render_plan(first_name: str, user_id: int, username: str = "") -> str:
-    """Render the saved plan (or default) with user variables substituted."""
+def _render_plan(first_name: str, user_id: int, username: str = "", raw: str = None) -> str:
+    """Render the saved plan with user variables substituted. Returns None if no plan saved."""
     import html as _h
     _fn_safe = _h.escape(first_name)
     _mention = f'<a href="tg://user?id={user_id}">{_fn_safe}</a>'
-    raw = db.get_setting("default_plan_content") or _DEFAULT_PLAN_CONTENT
+    if raw is None:
+        raw = db.get_setting("default_plan_content")
+    if not raw:
+        return None
     return _pm.render_plan_content(raw, {
         "first_name": _fn_safe,
         "last_name": "",
@@ -813,52 +818,37 @@ def _render_plan(first_name: str, user_id: int, username: str = "") -> str:
     })
 
 async def _show_plan_for_user_cq(client, cq):
-    """Plans button handler — auto-detects premium status and responds accordingly."""
+    """Plans button — shows saved plan content exactly as saved. No cards or boxes."""
     user_id    = cq.from_user.id
     first_name = cq.from_user.first_name
     username   = cq.from_user.username or ""
-    import html as _h
-    _fn_safe   = _h.escape(first_name)
-    _mention   = f'<a href="tg://user?id={user_id}">{_fn_safe}</a>'
     keyboard   = InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_to_main_menu")]])
-    _is_owner_flag = user_id in {OWNER, OWNER_ID, OWNER_ID2}
+    _is_owner  = user_id in {OWNER, OWNER_ID, OWNER_ID2}
 
     try:
         bot_username = (await client.get_me()).username
     except Exception:
         bot_username = "bot"
 
-    is_premium = _is_owner_flag or db.is_user_authorized(user_id, bot_username)
+    is_premium = _is_owner or db.is_user_authorized(user_id, bot_username)
 
+    # Premium users see premium plan if set, else default plan
+    raw = None
     if is_premium:
-        # Clean subscription card for premium users
-        _sub_block = ""
-        try:
-            _info = db.get_user_expiry_info(user_id, bot_username)
-            if _info and not _is_owner_flag:
-                _days = _info.get("days_left", 0)
-                _expiry = _info.get("expiry_date", "—")
-                _status = "🟢 Active" if _days > 0 else "🔴 Expired"
-                _sub_block = (
-                    f"\n<blockquote>"
-                    f"📋 Status  ›  <b>{_status}</b>\n"
-                    f"📅 Expiry  ›  <b>{_expiry}</b>\n"
-                    f"⏳ Remaining  ›  <b>{_days} days</b>"
-                    f"</blockquote>"
-                )
-        except Exception:
-            pass
-        text = (
-            f"💎 <b>Your Subscription</b>\n\n"
-            f"👤 {_mention}\n"
-            f"✅ <b>Premium Member</b>"
-            f"{_sub_block}\n\n"
-            f"You have full access to all features. Enjoy! 🚀\n\n"
-            f"👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
-        )
+        raw = db.get_setting("premium_plan_content") or db.get_setting("default_plan_content")
     else:
-        # Full plan content for non-premium users
-        text = _render_plan(first_name, user_id, username)
+        raw = db.get_setting("default_plan_content")
+
+    if not raw:
+        text = "❌ No plan has been set yet.\n\nContact the administrator for details."
+        await cq.answer()
+        try:
+            await cq.message.edit_text(text, reply_markup=keyboard)
+        except Exception:
+            await client.send_message(cq.chat_id, text, reply_markup=keyboard)
+        return
+
+    text = _render_plan(first_name, user_id, username, raw)
 
     await cq.answer()
     try:
@@ -870,54 +860,29 @@ async def _show_plan_for_user_cq(client, cq):
                                   disable_web_page_preview=True)
 
 async def show_plan_for_user_msg(bot_client, m, bot_username: str):
-    """/plan command — simplified subscription status card."""
+    """/plan command — shows saved plan content exactly as saved."""
     user_id    = (m.from_user.id if m.from_user else None) or m.chat.id
     first_name = (m.from_user.first_name if m.from_user else None) or "User"
-    import html as _h
-    _fn_safe   = _h.escape(first_name)
-    _mention   = f'<a href="tg://user?id={user_id}">{_fn_safe}</a>'
-    _is_owner_flag = user_id in {OWNER, OWNER_ID, OWNER_ID2}
-    is_premium = _is_owner_flag or db.is_user_authorized(user_id, bot_username)
+    username   = (m.from_user.username if m.from_user else None) or ""
+    _is_owner  = user_id in {OWNER, OWNER_ID, OWNER_ID2}
+    is_premium = _is_owner or db.is_user_authorized(user_id, bot_username)
 
+    raw = None
     if is_premium:
-        _status_line = "✅ <b>Premium Member</b>"
-        _details = ""
-        try:
-            _info = db.get_user_expiry_info(user_id, bot_username)
-            if _info and not _is_owner_flag:
-                _days = _info.get("days_left", 0)
-                _expiry = _info.get("expiry_date", "—")
-                _s = "🟢 Active" if _days > 0 else "🔴 Expired"
-                _details = (
-                    f"<blockquote>"
-                    f"📋 Status  ›  <b>{_s}</b>\n"
-                    f"📅 Expiry  ›  <b>{_expiry}</b>\n"
-                    f"⏳ Remaining  ›  <b>{_days} days</b>"
-                    f"</blockquote>\n"
-                )
-        except Exception:
-            pass
-        text = (
-            f"📋 <b>Subscription Status</b>\n\n"
-            f"👤 {_mention}\n"
-            f"{_status_line}\n\n"
-            f"{_details}"
-            f"👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
-        )
-        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💳 View Plans", callback_data="upgrade_command")]])
+        raw = db.get_setting("premium_plan_content") or db.get_setting("default_plan_content")
     else:
-        text = (
-            f"📋 <b>Subscription Status</b>\n\n"
-            f"👤 {_mention}\n"
-            f"❌ <b>Not a Premium Member</b>\n\n"
-            f"<blockquote>Contact the owner to purchase a plan and unlock full access.</blockquote>\n\n"
-            f"👤 <a href='{CREDIT_LINK}'>{CREDIT}</a>"
-        )
-        keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💳 View Plans", callback_data="upgrade_command")],
-            [InlineKeyboardButton("📞 Contact Owner", url=f"tg://openmessage?user_id={OWNER}")],
-        ])
+        raw = db.get_setting("default_plan_content")
 
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("💳 Plans", callback_data="upgrade_command")]])
+
+    if not raw:
+        await m.reply_text(
+            "❌ No plan has been set yet.\n\nContact the administrator for details.",
+            reply_markup=keyboard,
+        )
+        return
+
+    text = _render_plan(first_name, user_id, username, raw)
     await m.reply_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML,
                        disable_web_page_preview=True)
 # .....,.....,.......,...,.......,....., .....,.....,.......,...,.......,.....,
@@ -1948,18 +1913,8 @@ def reset_and_set_commands():
         {"command": "reset",      "description": "🔄 Restart the bot process"},
     ]
 
-    # Set user commands (visible to all)
-    requests.post(url, json={"commands": user_commands})
-
-    # Set admin commands scoped to private chats only for owner
-    for _admin_id in {OWNER, OWNER_ID, OWNER_ID2}:
-        try:
-            requests.post(url, json={
-                "commands": user_commands + admin_commands,
-                "scope": {"type": "chat", "chat_id": _admin_id},
-            })
-        except Exception:
-            pass
+    # Set all commands visible to everyone globally
+    requests.post(url, json={"commands": user_commands + admin_commands})
 
 
 def notify_owner():
