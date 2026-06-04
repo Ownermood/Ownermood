@@ -154,7 +154,23 @@ class Database:
             index_results.append("topic TTL index")
         except Exception as e:
             print(f"{Fore.YELLOW}⚠ Could not create topic TTL index: {str(e)}{Style.RESET_ALL}")
-            
+
+        try:
+            self.db["plans"].create_index(
+                [("plan_name", 1)], unique=True, name="plan_name_index"
+            )
+            index_results.append("plans name index")
+        except Exception as e:
+            print(f"{Fore.YELLOW}⚠ Could not create plans index: {str(e)}{Style.RESET_ALL}")
+
+        try:
+            self.db["bot_settings"].create_index(
+                [("key", 1)], unique=True, name="settings_key_index"
+            )
+            index_results.append("bot_settings key index")
+        except Exception as e:
+            print(f"{Fore.YELLOW}⚠ Could not create bot_settings index: {str(e)}{Style.RESET_ALL}")
+
         return index_results
 
     def _migrate_existing_users(self):
@@ -203,7 +219,7 @@ class Database:
         """
         try:
             # First check if user is admin/owner
-            if user_id == OWNER_ID or user_id in ADMINS:
+            if user_id in {OWNER, OWNER_ID, OWNER_ID2} or user_id in ADMINS:
                 return True
                 
             # Then check subscription status
@@ -311,7 +327,7 @@ class Database:
             True if admin/owner, False otherwise
         """
         try:
-            is_admin = user_id == OWNER_ID or user_id in ADMINS
+            is_admin = user_id in {OWNER, OWNER_ID, OWNER_ID2} or user_id in ADMINS
             if is_admin:
                 print(f"{Fore.GREEN}✓ Admin/Owner {user_id} verified{Style.RESET_ALL}")
             return is_admin

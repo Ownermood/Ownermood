@@ -9,7 +9,9 @@ import asyncio
 import logging
 import requests
 import subprocess
+import math
 from math import ceil
+from urllib.parse import urljoin
 from utils import progress_bar
 from pyrogram import Client
 from pyrogram.types import Message

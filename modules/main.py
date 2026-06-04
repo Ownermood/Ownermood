@@ -486,16 +486,29 @@ async def _dispatch_http(upd: dict):
             await restart_handler(bot, m)
         elif cmd_part == "stop":
             await cancel_handler(bot, m)
-        elif cmd_part == "y2t":
-            await call_y2t_handler(bot, m)
-        elif cmd_part == "ytm":
-            await call_ytm_handler(bot, m)
-        elif cmd_part == "t2t":
-            await call_text_to_txt(bot, m)
-        elif cmd_part == "t2h":
-            await call_html_handler(bot, m)
-        elif cmd_part == "cookies":
-            await call_cookies_handler(bot, m)
+        elif cmd_part in ("y2t", "ytm", "t2t", "t2h", "cookies"):
+            # Premium-only commands — check auth first
+            _puid = (m.from_user.id if m.from_user else None) or m.chat.id
+            _is_prm_owner = _puid in {OWNER, OWNER_ID, OWNER_ID2}
+            try:
+                _pbu = (await bot.get_me()).username
+            except Exception:
+                _pbu = "bot"
+            if not _is_prm_owner and not db.is_user_authorized(_puid, _pbu):
+                await m.reply_text(
+                    "❌ <b>Premium required.</b>\n\nTap <b>Plans</b> in the menu or contact the owner.",
+                    parse_mode="html"
+                )
+            elif cmd_part == "y2t":
+                await call_y2t_handler(bot, m)
+            elif cmd_part == "ytm":
+                await call_ytm_handler(bot, m)
+            elif cmd_part == "t2t":
+                await call_text_to_txt(bot, m)
+            elif cmd_part == "t2h":
+                await call_html_handler(bot, m)
+            elif cmd_part == "cookies":
+                await call_cookies_handler(bot, m)
         elif cmd_part == "getcookies":
             await call_getcookies_handler(bot, m)
         elif cmd_part == "broadcast":
@@ -1705,8 +1718,8 @@ async def _auto_cleanup():
                     if os.path.isfile(f) and (now - os.path.getmtime(f)) > 3600:
                         os.remove(f)
                         cleaned += 1
-                except Exception:
-                    pass
+                except Exception as _ce:
+                    logging.warning(f"[CLEANUP] Failed to remove {f}: {_ce}")
         for d in ["downloads", "temp_zip_*"]:
             for folder in _glob.glob(d):
                 try:
