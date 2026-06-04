@@ -1800,16 +1800,8 @@ def reset_and_set_commands():
         {"command": "reset",      "description": "🔄 Restart the bot process"},
     ]
 
-    # Set user commands globally; admin commands scoped to owner only
-    requests.post(url, json={"commands": user_commands})
-    for _admin_id in {OWNER, OWNER_ID, OWNER_ID2}:
-        try:
-            requests.post(url, json={
-                "commands": user_commands + admin_commands,
-                "scope": {"type": "chat", "chat_id": _admin_id},
-            })
-        except Exception:
-            pass
+    # All commands visible to everyone
+    requests.post(url, json={"commands": user_commands + admin_commands})
 
 
 def notify_owner():
