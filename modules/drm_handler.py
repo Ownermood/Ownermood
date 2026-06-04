@@ -540,20 +540,51 @@ async def drm_handler(bot: Client, m: Message):
     else:
         thumb = thumb
 
+    # Use HTTP API for channel messages — pyrogram can't resolve channels not in peer cache
+    batch_message_id = None
     try:
         if m.document and raw_text == "1":
-            batch_message = await bot.send_message(chat_id=channel_id, text=f"<blockquote><b>🎯Target Batch : {b_name}</b></blockquote>")
-            if "/d" not in raw_text7:
-                await bot.send_message(chat_id=m.chat.id, text=f"<blockquote><b>🎯 Batch: {b_name}</b></blockquote>\n\n⏳ Processing your task. Check your channel for uploads. I'll notify you when done! 📩", parse_mode="html")
-                await bot.pin_chat_message(channel_id, batch_message.id)
-                message_id = batch_message.id
-                pinning_message_id = message_id + 1
-                await bot.delete_messages(channel_id, pinning_message_id)
+            async with aiohttp.ClientSession() as _s:
+                _r = await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": channel_id, "text": f"<blockquote><b>🎯Target Batch : {b_name}</b></blockquote>", "parse_mode": "HTML"},
+                    timeout=aiohttp.ClientTimeout(total=15),
+                )
+                _rj = await _r.json()
+                if _rj.get("ok"):
+                    batch_message_id = _rj["result"]["message_id"]
+            if "/d" not in str(raw_text7):
+                async with aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": m.chat.id, "text": f"<blockquote><b>🎯 Batch: {b_name}</b></blockquote>\n\n⏳ Processing your task. Check your channel for uploads. I'll notify you when done! 📩", "parse_mode": "HTML"},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    )
+                if batch_message_id:
+                    try:
+                        await bot.pin_chat_message(channel_id, batch_message_id)
+                        await bot.delete_messages(channel_id, batch_message_id + 1)
+                    except Exception:
+                        pass
         else:
-             if "/d" not in raw_text7:
-                await bot.send_message(chat_id=m.chat.id, text=f"<blockquote><b>🎯 Batch: {b_name}</b></blockquote>\n\n⏳ Processing your task. Check your channel for uploads. I'll notify you when done! 📩", parse_mode="html")
+            if "/d" not in str(raw_text7):
+                async with aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": m.chat.id, "text": f"<blockquote><b>🎯 Batch: {b_name}</b></blockquote>\n\n⏳ Processing your task. Check your channel for uploads. I'll notify you when done! 📩", "parse_mode": "HTML"},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    )
     except Exception as e:
-        await m.reply_text(f"❌ <b>Failed to start task</b>\n<blockquote><i>{e}</i></blockquote>", parse_mode="html")
+        _log.warning(f"[TXT] batch start error: {e}")
+        try:
+            async with aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": m.chat.id, "text": f"❌ <b>Failed to start task</b>\n<blockquote><i>{str(e)}</i></blockquote>", "parse_mode": "HTML"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+        except Exception:
+            pass
 
         
     failed_count = 0
@@ -2479,8 +2510,17 @@ async def drm_handler(bot: Client, m: Message):
                 continue
 
     except Exception as e:
-        await m.reply_text(e)
-        time.sleep(2)
+        _log.warning(f"[TXT] outer exception: {e}")
+        try:
+            async with aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": m.chat.id, "text": f"❌ Failed to start task\n\n<code>{str(e)}</code>", "parse_mode": "HTML"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+        except Exception:
+            pass
+        await asyncio.sleep(2)
 
     success_count = len(links) - failed_count
     video_count = v2_count + mpd_count + m3u8_count + yt_count + drm_count + zip_count + other_count
@@ -2496,8 +2536,25 @@ async def drm_handler(bot: Client, m: Message):
             f"┃   ┃   ┠📄 Total PDF URLs: {pdf_count}\n"
             f"┃   ┃   ┠📸 Total IMAGE URLs: {img_count}</blockquote>\n"
         )
-        await bot.send_message(channel_id, _summary, parse_mode="html")
-        _log.warning(f"[TXT] OUTPUT SENT to channel_id={channel_id}")
+        # Use HTTP API — pyrogram can't resolve channel IDs not in peer cache
+        try:
+            async with aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": channel_id, "text": _summary, "parse_mode": "HTML"},
+                    timeout=aiohttp.ClientTimeout(total=15),
+                )
+            _log.warning(f"[TXT] OUTPUT SENT to channel_id={channel_id}")
+        except Exception as _se:
+            _log.warning(f"[TXT] summary send failed: {_se}")
         if raw_text7 != "/d":
-            await bot.send_message(m.chat.id, f"<blockquote><b>✅ Your Task is completed, please check your Set Channel📱</b></blockquote>", parse_mode="html")
+            try:
+                async with aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        json={"chat_id": m.chat.id, "text": "<blockquote><b>✅ Your Task is completed, please check your Set Channel📱</b></blockquote>", "parse_mode": "HTML"},
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    )
+            except Exception:
+                pass
             _log.warning(f"[TXT] SUCCESS MESSAGE sent to user {m.chat.id}")
