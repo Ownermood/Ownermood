@@ -267,20 +267,31 @@ async def drm_handler(bot: Client, m: Message):
             await bot.send_message(m.chat.id, "❌ <b>Failed to download your file.</b>\n\nPlease try again.", parse_mode="html")
             return
         _log.warning(f"[TXT] FILE DOWNLOAD SUCCESS  path={x!r}")
-        # Instantly acknowledge so user knows the bot is working
+        # Use HTTP Bot API directly — pyrogram MTProto calls hang on Heroku
+        _ack_msg_id = None
         try:
-            _ack = await bot.send_message(m.chat.id, "⏳ <b>File received! Processing...</b>", parse_mode="html")
-        except Exception:
-            _ack = None
-        # Send copy to owner — with strict timeout so it never hangs
+            async with aiohttp.ClientSession() as _s:
+                _r = await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    json={"chat_id": m.chat.id, "text": "⏳ <b>File received! Processing...</b>", "parse_mode": "HTML"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
+                _rj = await _r.json()
+                if _rj.get("ok"):
+                    _ack_msg_id = _rj["result"]["message_id"]
+                    _log.warning(f"[TXT] ACK sent  msg_id={_ack_msg_id}")
+        except Exception as _ae:
+            _log.warning(f"[TXT] ack send failed (non-fatal): {_ae}")
+        # Skip sending copy to owner — MTProto media upload hangs on Heroku
+        _log.warning("[TXT] skipping send_document to owner (MTProto media upload unreliable)")
+        # Delete original file message via HTTP API
         try:
-            await asyncio.wait_for(bot.send_document(OWNER, x), timeout=15)
-        except asyncio.TimeoutError:
-            _log.warning("[TXT] send_document to owner timed out (non-fatal, continuing)")
-        except Exception as _se:
-            _log.warning(f"[TXT] send to owner failed (non-fatal): {_se}")
-        try:
-            await m.delete(True)
+            async with aiohttp.ClientSession() as _s:
+                await _s.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+                    json={"chat_id": m.chat.id, "message_id": m.message_id},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                )
         except Exception:
             pass
         file_name, ext = os.path.splitext(os.path.basename(x))
@@ -316,7 +327,7 @@ async def drm_handler(bot: Client, m: Message):
         await bot.send_message(m.chat.id, "❌ <b>Only .txt files are supported.</b>\n\nPlease send a valid .txt file.", parse_mode="html")
         return
     elif m.text and "://" in m.text:
-        _ack = None
+        _ack_msg_id = None
         lines = [m.text]
     else:
         _log.warning(f"[TXT] No processable content — returning silently")
@@ -366,11 +377,16 @@ async def drm_handler(bot: Client, m: Message):
     _log.warning(f"[TXT] {len(links)} links parsed — sending summary to user")
     if m.document:
         # Delete "Processing..." ack now that we have real info to show
-        try:
-            if _ack:
-                await _ack.delete(True)
-        except Exception:
-            pass
+        if _ack_msg_id:
+            try:
+                async with aiohttp.ClientSession() as _s:
+                    await _s.post(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+                        json={"chat_id": m.chat.id, "message_id": _ack_msg_id},
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    )
+            except Exception:
+                pass
         editable = await m.reply_text(
                f"<b>🔗 {len(links)} Links Found</b>\n"
                f"<blockquote>"
