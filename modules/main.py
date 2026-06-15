@@ -419,7 +419,7 @@ async def _dispatch_http(upd: dict):
         data = cq.data
         logging.warning(f"[POLL] callback_query data={data!r} from={cq.from_user.id}")
         for pattern, fn in _CB_HANDLERS:
-            if pattern.search(data):
+            if pattern.fullmatch(data):
                 try:
                     await fn(bot, cq)
                 except Exception as e:
